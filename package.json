@@ -1,0 +1,16 @@
+{
+  "name": "quanttec",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "api"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "typecheck": "npm run typecheck --workspaces"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
