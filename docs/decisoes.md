@@ -16,12 +16,15 @@
     - Uma sequência de 11 dígitos sem pontuação só é mascarada se os dígitos verificadores forem válidos. Assim, números de telefone continuam legíveis.
 11. **IA no Azure AI Foundry**, com um modelo "mini". O modelo exato será escolhido quando a conta for criada, conforme a disponibilidade na região.
 12. **Piloto: FINANCEIRO:ITARARE.**
+13. **Autenticação: opção (A), de custo zero.** O front-end fica na SWA Free e serve só as telas. O login usa Microsoft Entra ID via OIDC: o SPA autentica com MSAL e a Function App valida o JWT. Todo o back-end fica numa única Function App (Consumption).
+    - O Entra ID só autentica. Quem é atendente, o perfil e o departamento ficam na tabela `attendants`, ligados pelo `identity_provider_id`.
+    - Um login válido no Entra que não esteja cadastrado ou ativo em `attendants` não tem acesso a nada.
+    - Pode haver uma conta por pessoa (recomendado, por rastreabilidade e LGPD) ou uma conta compartilhada por departamento. O modelo atende os dois casos sem mudar código.
+    - Os usuários são criados no tenant da Quanttec, que só existirá junto com a conta Azure própria do projeto.
 
 ## Em aberto
 
 - **Retenção (LGPD):** os dados continuam guardados depois do atendimento. O prazo e o expurgo dependem da área de negócio.
-- **Autenticação e plano da Static Web Apps.** No plano Free, a Static Web Apps só aceita *managed functions*. Elas têm só gatilho HTTP, não usam Key Vault references nem managed identity, e o Node mais novo suportado é o 20, em preview. O webhook depende de fila, então não cabe ali. As opções são:
-  - **(A) Custo zero:** SWA Free só com o front-end. O login usa Entra ID via OIDC (MSAL no SPA, JWT validado na Function App). O back-end fica numa única Function App (Consumption).
-  - **(B) Mais simples, pago:** SWA Standard (consultar o preço vigente) com a Function App ligada como "bring your own". O login usa o provedor da própria SWA.
+- **Contas dos atendentes:** uma por pessoa ou uma por departamento. A recomendação é uma por pessoa.
 - **RG no texto das mensagens:** o formato varia por estado e ainda não é mascarado.
 - **Migrations:** escolher a ferramenta que vai aplicá-las (script próprio ou ferramenta pronta). Decidir quando houver banco.
