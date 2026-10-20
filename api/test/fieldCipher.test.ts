@@ -37,9 +37,8 @@ describe('FieldCipher', () => {
 
 describe('loadConfig', () => {
   const validEnv = {
-    META_APP_SECRET: 'secret',
-    META_VERIFY_TOKEN: 'token',
     SERVICE_SCOPE: 'FINANCEIRO:ITARARE',
+    DATA_STORE: 'memory',
     FIELD_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64'),
     FIELD_HASH_KEY: Buffer.alloc(32, 2).toString('base64'),
   };
@@ -49,7 +48,16 @@ describe('loadConfig', () => {
   });
 
   it('fails on a missing variable', () => {
-    expect(() => loadConfig({ ...validEnv, META_APP_SECRET: '' })).toThrow(/META_APP_SECRET/);
+    expect(() => loadConfig({ ...validEnv, SERVICE_SCOPE: '' })).toThrow(/SERVICE_SCOPE/);
+  });
+
+  it('requires a connection string for the sql data store', () => {
+    expect(() => loadConfig({ ...validEnv, DATA_STORE: 'sql' })).toThrow(/SQL_CONNECTION_STRING/);
+    expect(loadConfig({ ...validEnv, DATA_STORE: 'sql', SQL_CONNECTION_STRING: 'Server=x' }).dataStore.kind).toBe('sql');
+  });
+
+  it('refuses the memory data store inside Azure', () => {
+    expect(() => loadConfig({ ...validEnv, WEBSITE_SITE_NAME: 'quanttec-func' })).toThrow(/not allowed/);
   });
 
   it('fails on a key that is not 32 bytes', () => {

@@ -1,22 +1,26 @@
-{
-  "name": "@quanttec/api",
-  "version": "0.1.0",
-  "private": true,
-  "main": "dist/functions/*.js",
-  "scripts": {
-    "build": "tsc",
-    "prestart": "npm run build",
-    "start": "func start",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@azure/functions": "^4.16.5"
-  },
-  "devDependencies": {
-    "@types/node": "^22.20.5",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
-  }
+﻿{
+    "name":  "@quanttec/api",
+    "version":  "0.1.0",
+    "private":  true,
+    "main":  "dist/functions/*.js",
+    "scripts":  {
+                    "build":  "npm run clean \u0026\u0026 tsc",
+                    "prestart":  "npm run build",
+                    "start":  "func start",
+                    "test":  "vitest run",
+                    "test:watch":  "vitest",
+                    "typecheck":  "tsc --noEmit",
+                    "migrate":  "npm run build \u0026\u0026 node dist/tools/migrate.js",
+                    "clean":  "node -e \"require(\u0027fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})\""
+                },
+    "dependencies":  {
+                         "@azure/functions":  "^4.16.5",
+                         "mssql":  "^12.7.10"
+                     },
+    "devDependencies":  {
+                            "@types/mssql":  "^12.3.0",
+                            "@types/node":  "^22.20.5",
+                            "typescript":  "^7.0.2",
+                            "vitest":  "^5.0.3"
+                        }
 }

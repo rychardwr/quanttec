@@ -40,11 +40,22 @@
     - Motivo: não há número de WhatsApp disponível para testar agora.
     - O núcleo (tickets, triagem, painel, RBAC, privacidade) fica independente de canal.
 
+18. **Chat web: regras do canal** (2026-10-20). O Richard autorizou decidir e refinar depois.
+    - **Departamento e cidade por botões**, que mostram só o que o piloto atende. A IA saiu do encaminhamento e pode voltar depois para ajudar o atendente.
+    - **Formulário de cadastro** (nome, telefone, CPF, RG) com consentimento obrigatório. O servidor guarda a versão do aviso aceito e recusa versões antigas.
+    - **Sessão do cliente:** token aleatório de 256 bits, guardado no navegador. O servidor guarda só o SHA-256. Validade de 30 dias.
+    - **Atualização da conversa por polling** a cada 4 s, só com a aba visível. É simples e grátis; não há Web PubSub.
+    - **Sem fila:** a API grava direto. A fila existia porque a Meta exige 200 rápido no webhook.
+    - **Idempotência:** o navegador gera um `clientMessageId` (UUID), e uma repetição devolve a mesma mensagem. `messages.seq` é o cursor do polling.
+    - **Repositório em memória** para rodar localmente sem banco. A configuração o recusa no Azure (`WEBSITE_SITE_NAME`).
+    - **Migrations:** ferramenta própria e simples (`npm run migrate`). Cada arquivo roda numa transação e fica registrado em `schema_migrations`.
+    - A migration 0001 foi reescrita para o novo modelo antes de ser aplicada em qualquer banco. O modelo do WhatsApp está na tag `canal-whatsapp`.
+    - **Mesmo contrato para os dois repositórios:** os testes de contrato rodam contra o repositório em memória e contra o SQL, quando há banco, para o falso não divergir do real.
+
 ## Em aberto
-- **Textos das respostas automáticas:** revisar com o negócio.
-- **Cliente fora do piloto** (ex.: Medicina em Sengés durante o piloto do Financeiro): hoje vai para a triagem do master. Avaliar se deveria receber "ainda não atendemos por este canal".
-- **Aviso de privacidade (LGPD):** em que momento o cliente é informado e consente com a coleta de CPF e RG.
+- **Rate limiting e captcha no chat público:** obrigatórios antes de abrir para o público. Opções: Cloudflare Turnstile (grátis) e limite por IP/sessão no banco.
+- **Texto do aviso de privacidade** (`api/src/modules/chat/privacyNotice.ts`): rascunho, revisar com o negócio e, se possível, com um jurídico.
+- **CSP e cabeçalhos de segurança** do front-end (`staticwebapp.config.json`): definir quando a URL da API existir.
 - **Retenção (LGPD):** os dados continuam guardados depois do atendimento. O prazo e o expurgo dependem da área de negócio.
 - **Contas dos atendentes:** uma por pessoa ou uma por departamento. A recomendação é uma por pessoa.
 - **RG no texto das mensagens:** o formato varia por estado e ainda não é mascarado.
-- **Migrations:** escolher a ferramenta que vai aplicá-las (script próprio ou ferramenta pronta). Decidir quando houver banco.

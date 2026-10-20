@@ -1,12 +1,15 @@
 import { FIELD_KEY_LENGTH } from '../modules/privacy/fieldCipher';
 import { parseServiceScope, ServiceScope } from '../modules/routing/serviceScope';
 
+export type DataStoreConfig =
+  | { readonly kind: 'sql'; readonly connectionString: string }
+  | { readonly kind: 'memory' };
+
 export interface AppConfig {
-  readonly metaAppSecret: string;
-  readonly metaVerifyToken: string;
   readonly serviceScope: ServiceScope;
   readonly fieldEncryptionKey: Buffer;
   readonly fieldHashKey: Buffer;
+  readonly dataStore: DataStoreConfig;
 }
 
 export class ConfigError extends Error {}
@@ -20,12 +23,26 @@ export function getConfig(): AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   return {
-    metaAppSecret: required(env, 'META_APP_SECRET'),
-    metaVerifyToken: required(env, 'META_VERIFY_TOKEN'),
     serviceScope: parseServiceScope(required(env, 'SERVICE_SCOPE')),
     fieldEncryptionKey: requiredKey(env, 'FIELD_ENCRYPTION_KEY'),
     fieldHashKey: requiredKey(env, 'FIELD_HASH_KEY'),
+    dataStore: loadDataStore(env),
   };
+}
+
+/** "memory" is for local development only and is refused inside Azure (WEBSITE_SITE_NAME is set there). */
+function loadDataStore(env: NodeJS.ProcessEnv): DataStoreConfig {
+  const kind = required(env, 'DATA_STORE');
+  if (kind === 'sql') {
+    return { kind, connectionString: required(env, 'SQL_CONNECTION_STRING') };
+  }
+  if (kind === 'memory') {
+    if (env.WEBSITE_SITE_NAME) {
+      throw new ConfigError('DATA_STORE=memory is not allowed in Azure');
+    }
+    return { kind };
+  }
+  throw new ConfigError('DATA_STORE must be "sql" or "memory"');
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {

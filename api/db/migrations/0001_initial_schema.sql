@@ -1,4 +1,4 @@
--- 0001 - Initial schema (Azure SQL Database)
+-- 0001 - Initial schema (Azure SQL Database), web chat channel
 -- Identifiers in English; reference data in 0002.
 
 CREATE TABLE departments (
@@ -37,48 +37,49 @@ CREATE TABLE attendants (
     CONSTRAINT ck_attendants_department CHECK (role = 'MASTER' OR department_id IS NOT NULL)
 );
 
--- CPF/RG are encrypted by the application (AES-256-GCM, key in Key Vault).
--- cpf_hash is a keyed HMAC used only for lookup, never the plain value.
+-- Filled by the intake form. CPF/RG are encrypted by the application
+-- (AES-256-GCM, key in Key Vault); cpf_hash is a keyed HMAC used only for lookup.
 CREATE TABLE customers (
     id               UNIQUEIDENTIFIER NOT NULL CONSTRAINT pk_customers PRIMARY KEY
                                       CONSTRAINT df_customers_id DEFAULT NEWSEQUENTIALID(),
-    wa_id            VARCHAR(20)      NOT NULL CONSTRAINT uq_customers_wa_id UNIQUE,
-    full_name        NVARCHAR(150)    NULL,
-    cpf_encrypted    VARBINARY(256)   NULL,
-    cpf_hash         BINARY(32)       NULL,
-    rg_encrypted     VARBINARY(256)   NULL,
-    consent_at       DATETIME2(3)     NULL,
-    consent_version  VARCHAR(20)      NULL,
-    last_inbound_at  DATETIME2(3)     NULL, -- drives the 24h customer service window
-    created_at       DATETIME2(3)     NOT NULL CONSTRAINT df_customers_created DEFAULT SYSUTCDATETIME(),
-    updated_at       DATETIME2(3)     NOT NULL CONSTRAINT df_customers_updated DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT ck_customers_consent CHECK (
-        (consent_at IS NULL AND consent_version IS NULL) OR (consent_at IS NOT NULL AND consent_version IS NOT NULL))
+    full_name        NVARCHAR(150)    NOT NULL,
+    phone            VARCHAR(13)      NOT NULL, -- digits only, with country code
+    cpf_encrypted    VARBINARY(256)   NOT NULL,
+    cpf_hash         BINARY(32)       NOT NULL,
+    rg_encrypted     VARBINARY(256)   NOT NULL,
+    consent_at       DATETIME2(3)     NOT NULL,
+    consent_version  VARCHAR(20)      NOT NULL,
+    created_at       DATETIME2(3)     NOT NULL CONSTRAINT df_customers_created DEFAULT SYSUTCDATETIME()
 );
--- Not unique: the same person may write from more than one phone.
-CREATE INDEX ix_customers_cpf_hash ON customers (cpf_hash) WHERE cpf_hash IS NOT NULL;
+CREATE INDEX ix_customers_cpf_hash ON customers (cpf_hash);
+
+-- Browser sessions of the web chat. Only the SHA-256 of the token is stored.
+CREATE TABLE chat_sessions (
+    id           UNIQUEIDENTIFIER NOT NULL CONSTRAINT pk_chat_sessions PRIMARY KEY
+                                  CONSTRAINT df_chat_sessions_id DEFAULT NEWSEQUENTIALID(),
+    token_hash   BINARY(32)       NOT NULL CONSTRAINT uq_chat_sessions_token UNIQUE,
+    customer_id  UNIQUEIDENTIFIER NOT NULL CONSTRAINT fk_chat_sessions_customer REFERENCES customers(id),
+    created_at   DATETIME2(3)     NOT NULL CONSTRAINT df_chat_sessions_created DEFAULT SYSUTCDATETIME(),
+    expires_at   DATETIME2(3)     NOT NULL
+);
+CREATE INDEX ix_chat_sessions_customer ON chat_sessions (customer_id);
 
 CREATE TABLE tickets (
     id                     UNIQUEIDENTIFIER NOT NULL CONSTRAINT pk_tickets PRIMARY KEY
                                             CONSTRAINT df_tickets_id DEFAULT NEWSEQUENTIALID(),
     ticket_number          INT IDENTITY(1000,1) NOT NULL CONSTRAINT uq_tickets_number UNIQUE,
     customer_id            UNIQUEIDENTIFIER NOT NULL CONSTRAINT fk_tickets_customer REFERENCES customers(id),
-    department_id          INT              NULL CONSTRAINT fk_tickets_department REFERENCES departments(id),
-    city_id                INT              NULL CONSTRAINT fk_tickets_city REFERENCES cities(id),
+    department_id          INT              NOT NULL CONSTRAINT fk_tickets_department REFERENCES departments(id),
+    city_id                INT              NOT NULL CONSTRAINT fk_tickets_city REFERENCES cities(id),
     status                 VARCHAR(20)      NOT NULL CONSTRAINT df_tickets_status DEFAULT 'OPEN',
-    classification_source  VARCHAR(10)      NOT NULL CONSTRAINT df_tickets_classification DEFAULT 'NONE',
-    -- AUTO: the AI is still triaging; MANUAL: handed to a human (AI failure, not served, too many attempts).
-    triage_mode            VARCHAR(10)      NOT NULL CONSTRAINT df_tickets_triage_mode DEFAULT 'AUTO',
     assigned_attendant_id  UNIQUEIDENTIFIER NULL CONSTRAINT fk_tickets_attendant REFERENCES attendants(id),
     created_at             DATETIME2(3)     NOT NULL CONSTRAINT df_tickets_created DEFAULT SYSUTCDATETIME(),
     updated_at             DATETIME2(3)     NOT NULL CONSTRAINT df_tickets_updated DEFAULT SYSUTCDATETIME(),
     resolved_at            DATETIME2(3)     NULL,
     CONSTRAINT ck_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED')),
-    CONSTRAINT ck_tickets_classification CHECK (classification_source IN ('AI', 'HUMAN', 'NONE')),
-    CONSTRAINT ck_tickets_triage_mode CHECK (triage_mode IN ('AUTO', 'MANUAL')),
     CONSTRAINT ck_tickets_resolved CHECK (
         (status = 'RESOLVED' AND resolved_at IS NOT NULL) OR (status <> 'RESOLVED' AND resolved_at IS NULL)),
-    -- When both are set, the pair must be one the catalog serves.
+    -- The pair must be one the catalog serves.
     CONSTRAINT fk_tickets_department_city FOREIGN KEY (department_id, city_id)
         REFERENCES department_cities (department_id, city_id)
 );
@@ -86,26 +87,21 @@ CREATE INDEX ix_tickets_department_status_created ON tickets (department_id, sta
 CREATE INDEX ix_tickets_status_created ON tickets (status, created_at DESC);
 CREATE INDEX ix_tickets_customer ON tickets (customer_id);
 
--- wa_message_id is unique: a re-delivered Meta notification fails the insert
--- and is treated as already processed (idempotency).
+-- seq is the polling cursor. client_message_id makes customer posts
+-- idempotent: a browser retry returns the message already stored.
 CREATE TABLE messages (
     id                   UNIQUEIDENTIFIER NOT NULL CONSTRAINT pk_messages PRIMARY KEY
                                           CONSTRAINT df_messages_id DEFAULT NEWSEQUENTIALID(),
+    seq                  BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT uq_messages_seq UNIQUE,
     ticket_id            UNIQUEIDENTIFIER NOT NULL CONSTRAINT fk_messages_ticket REFERENCES tickets(id),
-    direction            VARCHAR(10)      NOT NULL,
-    wa_message_id        VARCHAR(128)     NULL,
+    sender               VARCHAR(10)      NOT NULL,
     author_attendant_id  UNIQUEIDENTIFIER NULL CONSTRAINT fk_messages_attendant REFERENCES attendants(id),
-    message_type         VARCHAR(20)      NOT NULL,
-    template_name        VARCHAR(100)     NULL,
-    body                 NVARCHAR(MAX)    NULL, -- WhatsApp texts go up to 4096 chars; CPFs already masked
-    sent_at              DATETIME2(3)     NOT NULL,
-    processed_at         DATETIME2(3)     NULL, -- inbound only: set once triage/reply finished, so a re-delivery resumes or skips
+    client_message_id    UNIQUEIDENTIFIER NULL,
+    body                 NVARCHAR(MAX)    NOT NULL, -- CPFs already masked
     created_at           DATETIME2(3)     NOT NULL CONSTRAINT df_messages_created DEFAULT SYSUTCDATETIME(),
-    CONSTRAINT ck_messages_direction CHECK (direction IN ('INBOUND', 'OUTBOUND')),
-    CONSTRAINT ck_messages_type CHECK (message_type IN ('TEXT', 'TEMPLATE', 'INTERACTIVE', 'OTHER')),
-    CONSTRAINT ck_messages_template CHECK (
-        (message_type = 'TEMPLATE' AND template_name IS NOT NULL) OR (message_type <> 'TEMPLATE' AND template_name IS NULL)),
-    CONSTRAINT ck_messages_author CHECK (direction = 'OUTBOUND' OR author_attendant_id IS NULL)
+    CONSTRAINT ck_messages_sender CHECK (sender IN ('CUSTOMER', 'ATTENDANT', 'SYSTEM')),
+    CONSTRAINT ck_messages_author CHECK (
+        (sender = 'ATTENDANT' AND author_attendant_id IS NOT NULL) OR (sender <> 'ATTENDANT' AND author_attendant_id IS NULL))
 );
-CREATE UNIQUE INDEX ux_messages_wa_message_id ON messages (wa_message_id) WHERE wa_message_id IS NOT NULL;
-CREATE INDEX ix_messages_ticket_sent ON messages (ticket_id, sent_at);
+CREATE UNIQUE INDEX ux_messages_client_id ON messages (ticket_id, client_message_id) WHERE client_message_id IS NOT NULL;
+CREATE INDEX ix_messages_ticket_seq ON messages (ticket_id, seq);
