@@ -5,6 +5,8 @@
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "META_APP_SECRET": "app-secret-do-app-meta",
     "META_VERIFY_TOKEN": "token-escolhido-ao-cadastrar-o-webhook",
-    "SERVICE_SCOPE": "FINANCEIRO:ITARARE"
+    "SERVICE_SCOPE": "FINANCEIRO:ITARARE",
+    "FIELD_ENCRYPTION_KEY": "gerar-com: node -e \"console.log(require('crypto').randomBytes(32).toString('base64'))\"",
+    "FIELD_HASH_KEY": "gerar-outra-chave-com-o-mesmo-comando"
   }
 }

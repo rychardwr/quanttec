@@ -22,8 +22,10 @@ Em desenvolvimento, fase de fundação. Nada foi publicado no Azure ainda.
 | Regra de roteamento departamento × cidade e flag de piloto | ✅ |
 | Visibilidade de tickets por perfil (atendente / master) | ✅ |
 | Mascaramento de CPF no texto das mensagens | ✅ |
+| Processamento da mensagem: idempotência, triagem por IA, resposta e fallback humano | ✅ regra pronta, falta ligar ao banco |
+| Criptografia de CPF/RG (AES-256-GCM) | ✅ |
 | Schema do banco (migrations) | ✅ escrito, ainda não aplicado |
-| Consumidor da fila e criação de ticket | ⏳ próximo |
+| Repositório SQL e registro da função da fila | ⏳ próximo |
 | Integração com IA (Azure AI Foundry) | ⏳ |
 | Autenticação dos atendentes | ⏳ decisão em aberto |
 | Front-end (Azure Static Web Apps) | ⏳ |
@@ -59,7 +61,8 @@ As decisões e as questões em aberto estão em [docs/decisoes.md](docs/decisoes
 api/                    Azure Functions
   src/functions/        Registro dos endpoints (só ligação com o runtime)
   src/modules/          Módulos por assunto
-    whatsapp/           Webhook da Meta
+    whatsapp/           Webhook da Meta e leitura do payload
+    conversation/       Processamento da mensagem (triagem, respostas, fila)
     routing/            Roteamento e flag de piloto
     access/             RBAC de tickets
     privacy/            Mascaramento de dados pessoais
@@ -102,8 +105,12 @@ Todos com o prefixo `/api`.
 | `META_APP_SECRET` | App secret da Meta, que valida a assinatura do webhook. Em produção, vem do Key Vault |
 | `META_VERIFY_TOKEN` | Token definido ao cadastrar o webhook na Meta |
 | `SERVICE_SCOPE` | `*` libera todo o catálogo; `FINANCEIRO:ITARARE[,DEP:CIDADE...]` restringe ao piloto |
+| `FIELD_ENCRYPTION_KEY` | Chave AES-256 (32 bytes em base64) para CPF/RG. Em produção, vem do Key Vault |
+| `FIELD_HASH_KEY` | Chave HMAC (32 bytes em base64) para buscar CPF sem guardá-lo em claro. Deve ser diferente da anterior |
 
 Nenhuma variável tem valor padrão. Se faltar alguma, a função falha ao iniciar.
+
+Para gerar uma chave: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 
 ## Segurança e LGPD
 
@@ -112,5 +119,6 @@ Nenhuma variável tem valor padrão. Se faltar alguma, a função falha ao inici
 - O controle de acesso é aplicado no back-end: o atendente vê só o próprio departamento e o master vê tudo.
 - CPF e RG do cadastro são criptografados na aplicação (AES-256-GCM, com a chave no Key Vault).
 - O CPF digitado no texto é mascarado antes de ser gravado e antes de ir para a IA.
+- A IA só classifica. As respostas automáticas ao cliente são textos fixos.
 - O conteúdo das mensagens e os dados pessoais nunca vão para os logs.
 - Fora da janela de 24h, o envio usa só modelos de mensagem pré-aprovados.

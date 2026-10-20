@@ -9,6 +9,8 @@ const config: AppConfig = {
   metaAppSecret: 'test-secret',
   metaVerifyToken: 'test-verify-token',
   serviceScope: parseServiceScope('FINANCEIRO:ITARARE'),
+  fieldEncryptionKey: Buffer.alloc(32, 1),
+  fieldHashKey: Buffer.alloc(32, 2),
 };
 const URL_BASE = 'http://localhost/api/v1/whatsapp/webhook';
 

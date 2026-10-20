@@ -55,7 +55,8 @@ CREATE TABLE customers (
     CONSTRAINT ck_customers_consent CHECK (
         (consent_at IS NULL AND consent_version IS NULL) OR (consent_at IS NOT NULL AND consent_version IS NOT NULL))
 );
-CREATE UNIQUE INDEX ux_customers_cpf_hash ON customers (cpf_hash) WHERE cpf_hash IS NOT NULL;
+-- Not unique: the same person may write from more than one phone.
+CREATE INDEX ix_customers_cpf_hash ON customers (cpf_hash) WHERE cpf_hash IS NOT NULL;
 
 CREATE TABLE tickets (
     id                     UNIQUEIDENTIFIER NOT NULL CONSTRAINT pk_tickets PRIMARY KEY
@@ -66,12 +67,15 @@ CREATE TABLE tickets (
     city_id                INT              NULL CONSTRAINT fk_tickets_city REFERENCES cities(id),
     status                 VARCHAR(20)      NOT NULL CONSTRAINT df_tickets_status DEFAULT 'OPEN',
     classification_source  VARCHAR(10)      NOT NULL CONSTRAINT df_tickets_classification DEFAULT 'NONE',
+    -- AUTO: the AI is still triaging; MANUAL: handed to a human (AI failure, not served, too many attempts).
+    triage_mode            VARCHAR(10)      NOT NULL CONSTRAINT df_tickets_triage_mode DEFAULT 'AUTO',
     assigned_attendant_id  UNIQUEIDENTIFIER NULL CONSTRAINT fk_tickets_attendant REFERENCES attendants(id),
     created_at             DATETIME2(3)     NOT NULL CONSTRAINT df_tickets_created DEFAULT SYSUTCDATETIME(),
     updated_at             DATETIME2(3)     NOT NULL CONSTRAINT df_tickets_updated DEFAULT SYSUTCDATETIME(),
     resolved_at            DATETIME2(3)     NULL,
     CONSTRAINT ck_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CANCELLED')),
     CONSTRAINT ck_tickets_classification CHECK (classification_source IN ('AI', 'HUMAN', 'NONE')),
+    CONSTRAINT ck_tickets_triage_mode CHECK (triage_mode IN ('AUTO', 'MANUAL')),
     CONSTRAINT ck_tickets_resolved CHECK (
         (status = 'RESOLVED' AND resolved_at IS NOT NULL) OR (status <> 'RESOLVED' AND resolved_at IS NULL)),
     -- When both are set, the pair must be one the catalog serves.
@@ -93,8 +97,9 @@ CREATE TABLE messages (
     author_attendant_id  UNIQUEIDENTIFIER NULL CONSTRAINT fk_messages_attendant REFERENCES attendants(id),
     message_type         VARCHAR(20)      NOT NULL,
     template_name        VARCHAR(100)     NULL,
-    body                 NVARCHAR(4000)   NULL,
+    body                 NVARCHAR(MAX)    NULL, -- WhatsApp texts go up to 4096 chars; CPFs already masked
     sent_at              DATETIME2(3)     NOT NULL,
+    processed_at         DATETIME2(3)     NULL, -- inbound only: set once triage/reply finished, so a re-delivery resumes or skips
     created_at           DATETIME2(3)     NOT NULL CONSTRAINT df_messages_created DEFAULT SYSUTCDATETIME(),
     CONSTRAINT ck_messages_direction CHECK (direction IN ('INBOUND', 'OUTBOUND')),
     CONSTRAINT ck_messages_type CHECK (message_type IN ('TEXT', 'TEMPLATE', 'INTERACTIVE', 'OTHER')),

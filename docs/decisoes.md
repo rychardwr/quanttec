@@ -21,9 +21,29 @@
     - Um login válido no Entra que não esteja cadastrado ou ativo em `attendants` não tem acesso a nada.
     - Pode haver uma conta por pessoa (recomendado, por rastreabilidade e LGPD) ou uma conta compartilhada por departamento. O modelo atende os dois casos sem mudar código.
     - Os usuários são criados no tenant da Quanttec, que só existirá junto com a conta Azure própria do projeto.
+14. **Processamento da mensagem** (`InboundMessageService`):
+    - A ordem é: gravar a mensagem → salvar o CPF criptografado → triagem → **responder o cliente** → gravar o resultado no ticket → marcar a mensagem como processada.
+    - A resposta vem antes de gravar o resultado. Assim, se o envio falhar, a nova tentativa ainda encontra o ticket em triagem e responde. Um teste pegou esse bug na versão anterior.
+    - Custo aceito: uma queda entre a resposta e a marcação pode repetir a resposta.
+    - `messages.processed_at` separa a mensagem já processada (ignorada) da que falhou no meio (retomada).
+    - A IA tem **3 mensagens** para classificar. Depois disso, o ticket vai para um humano (`triage_mode = MANUAL`). Falha, timeout da IA, par não atendido e pedido fora do piloto também vão para um humano.
+    - Ticket já classificado ou em modo manual não recebe resposta automática: quem responde é o atendente.
+    - Payload malformado é descartado com log, porque repetir não resolveria. Outros erros sobem para a fila tentar de novo e, depois de 5 tentativas, vão para a poison queue.
+    - Os logs nunca levam o texto da mensagem nem o da exceção da IA, só o nome do erro.
+15. **Respostas automáticas são textos fixos** (`replies.ts`). A IA só classifica e nunca escreve livremente para o cliente.
+16. **Ajustes na migration 0001**, feitos antes de ela ser aplicada em qualquer banco:
+    - `cpf_hash` deixou de ser único, porque a mesma pessoa pode escrever de dois números. Um índice único faria a mensagem falhar sempre.
+    - `messages.body` passou a `NVARCHAR(MAX)`, porque o WhatsApp aceita até 4096 caracteres.
+    - Foram criadas as colunas `tickets.triage_mode` e `messages.processed_at`.
+
+17. **Canal: chat web primeiro, WhatsApp depois se precisar** (2026-10-20).
+    - Motivo: não há número de WhatsApp disponível para testar agora.
+    - O núcleo (tickets, triagem, painel, RBAC, privacidade) fica independente de canal.
 
 ## Em aberto
-
+- **Textos das respostas automáticas:** revisar com o negócio.
+- **Cliente fora do piloto** (ex.: Medicina em Sengés durante o piloto do Financeiro): hoje vai para a triagem do master. Avaliar se deveria receber "ainda não atendemos por este canal".
+- **Aviso de privacidade (LGPD):** em que momento o cliente é informado e consente com a coleta de CPF e RG.
 - **Retenção (LGPD):** os dados continuam guardados depois do atendimento. O prazo e o expurgo dependem da área de negócio.
 - **Contas dos atendentes:** uma por pessoa ou uma por departamento. A recomendação é uma por pessoa.
 - **RG no texto das mensagens:** o formato varia por estado e ainda não é mascarado.
